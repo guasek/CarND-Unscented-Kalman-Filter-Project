@@ -1,7 +1,5 @@
 # Unscented Kalman Filter
 
----
-
 ## Dependencies
 
 * cmake >= v3.5

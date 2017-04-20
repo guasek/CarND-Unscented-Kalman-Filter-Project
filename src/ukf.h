@@ -13,7 +13,6 @@ using Eigen::VectorXd;
 
 class UKF {
 public:
-
   ///* initially set to false, set to true in first call of ProcessMeasurement
   bool is_initialized_;
 
@@ -65,6 +64,9 @@ public:
   ///* Augmented state dimension
   int n_aug_;
 
+  ///* Number of sigma points
+  int n_sigma_;
+
   ///* Sigma point spreading parameter
   double lambda_;
 
@@ -86,28 +88,58 @@ public:
 
   /**
    * ProcessMeasurement
-   * @param meas_package The latest measurement data of either radar or laser
+   *
+   * @param MeasurementPackage meas_package The latest measurement data of either radar or laser
    */
   void ProcessMeasurement(MeasurementPackage meas_package);
 
   /**
    * Prediction Predicts sigma points, the state, and the state covariance
    * matrix
-   * @param delta_t Time between k and k+1 in s
+   *
+   * @param double delta_t Time between k and k+1 in s
    */
-  void Prediction(double delta_t);
+  void Predict(double delta_t);
 
   /**
    * Updates the state and the state covariance matrix using a laser measurement
-   * @param meas_package The measurement at k+1
+   *
+   * @param MeasurementPackage measurement_package The measurement at k+1
    */
-  void UpdateLidar(MeasurementPackage meas_package);
+  void UpdateLidar(MeasurementPackage measurement_package);
 
   /**
    * Updates the state and the state covariance matrix using a radar measurement
-   * @param meas_package The measurement at k+1
+   *
+   * @param MeasurementPackage measurement_package The measurement at k+1
    */
-  void UpdateRadar(MeasurementPackage meas_package);
+  void UpdateRadar(MeasurementPackage measurement_package);
+
+  /**
+   * Performs KF initialization.
+   *
+   * @param MeasurementPackage& measurement_package Measurement package.
+   */
+  void Initialize(const MeasurementPackage& measurement_package);
+
+  /**
+   * Generates sigma point matrix.
+   *
+   * @param Xsig_out
+   */
+  MatrixXd GenerateSigmaPoints();
+
+  /**
+   * Does a sigma point prediction basing on augmented state vector.
+   *
+   * @param MatrixXd& augmented_sigma_points
+   */
+  void PredictSigmaPoints(const MatrixXd& augmented_sigma_points, double delta_t);
+
+  /**
+   * Does mean and covariance prediction basing on sigma point predictions.
+   */
+  void PredictNewState();
 };
 
 #endif /* UKF_H */

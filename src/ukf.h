@@ -67,6 +67,10 @@ public:
   ///* Number of sigma points
   int n_sigma_;
 
+  int radar_z_dim_;
+
+  int lidar_z_dim;
+
   ///* Sigma point spreading parameter
   double lambda_;
 

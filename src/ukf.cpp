@@ -2,12 +2,14 @@
 #include "tools.h"
 #include "Eigen/Dense"
 #include <iostream>
+#include "float.h"
 
 using namespace std;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 using std::vector;
 
+// TODO: Jeslk sie będzie sypać to porobić wszedzie fill(0)
 /**
  * Initializes Unscented Kalman filter
  */
@@ -19,12 +21,12 @@ UKF::UKF() {
   use_radar_ = true;
 
   n_x_ = 5;
-
   n_aug_ = 7;
-
   n_sigma_ = 2 * n_aug_ + 1;
-
   lambda_ = 3 - n_aug_;
+
+  radar_z_dim_ = 3;
+  lidar_z_dim = 2;
 
   weights_ = VectorXd(n_sigma_);
   weights_(0) = lambda_ / (lambda_ + n_aug_);
@@ -70,16 +72,29 @@ void UKF::ProcessMeasurement(MeasurementPackage measurement_package) {
     return;
   }
 
+  if ((!use_laser_ && measurement_package.sensor_type_ == MeasurementPackage::LASER) ||
+      (!use_radar_ && measurement_package.sensor_type_ == MeasurementPackage::RADAR)
+      ) {
+    cout << "Skipping " << measurement_package.sensor_type_ << endl;
+    return;
+  }
+
   double delta_t = (measurement_package.timestamp_ - time_us_) / 1000000.0;
   time_us_ = measurement_package.timestamp_;
 
   this->Predict(delta_t);
+
+  cout << "After Predict:" << endl;
+  cout << "X mean: " << endl << x_ << endl;
+  cout << "P mean: " << endl << P_ << endl << endl;
   if (measurement_package.sensor_type_ == MeasurementPackage::RADAR) {
     this->UpdateRadar(measurement_package);
   } else {
     this->UpdateLidar(measurement_package);
   }
-
+  cout << "After Update:" << endl;
+  cout << "X mean: " << endl << x_ << endl;
+  cout << "P mean: " << endl << P_ << endl << endl;
 }
 
 
@@ -96,6 +111,11 @@ void UKF::PredictNewState() {
   for (int i = 0; i < 2 * n_aug_ + 1; i++) {
     new_mean += weights_(i) * Xsig_pred_.col(i);
   }
+
+  while (new_mean(3)> M_PI) new_mean(3)-=2.*M_PI;
+  while (new_mean(3)< -M_PI) new_mean(3)+=2.*M_PI;
+  while (new_mean(4)> M_PI) new_mean(4)-=2.*M_PI;
+  while (new_mean(4)< -M_PI) new_mean(4)+=2.*M_PI;
   x_ << new_mean;
 
   // Then we can predict covariance basing on predicted state.
@@ -107,6 +127,8 @@ void UKF::PredictNewState() {
 
     while (X_sub_mean(3)> M_PI) X_sub_mean(3)-=2.*M_PI;
     while (X_sub_mean(3)< -M_PI) X_sub_mean(3)+=2.*M_PI;
+    while (X_sub_mean(4)> M_PI) X_sub_mean(4)-=2.*M_PI;
+    while (X_sub_mean(4)< -M_PI) X_sub_mean(4)+=2.*M_PI;
 
     new_covariance += weights_(i) * (X_sub_mean * X_sub_mean.transpose());
   }
@@ -193,9 +215,9 @@ void UKF::Initialize(const MeasurementPackage &measurement_package) {
   x_ = initial_x;
   P_ << 1, 0, 0, 0, 0,
         0, 1, 0, 0, 0,
-        0, 0, 100, 0, 0,
-        0, 0, 0, 100, 0,
-        0, 0, 0, 0, 100;
+        0, 0, 1, 0, 0,
+        0, 0, 0, 10, 0,
+        0, 0, 0, 0, 10;
 
   this->time_us_ = measurement_package.timestamp_;
   this->is_initialized_ = true;
@@ -203,23 +225,104 @@ void UKF::Initialize(const MeasurementPackage &measurement_package) {
 
 
 void UKF::UpdateLidar(MeasurementPackage measurement_package) {
-  /**
-  TODO:
 
-  Complete this function! Use lidar data to update the belief about the object's
-  position. Modify the state vector, x_, and covariance, P_.
+  MatrixXd Zsig = MatrixXd(lidar_z_dim, n_sigma_);
+  VectorXd z_pred = VectorXd(lidar_z_dim);
 
-  You'll also need to calculate the lidar NIS.
-  */
+  MatrixXd sigma_point;
+  for (int i=0; i < Xsig_pred_.cols(); i++) {
+    sigma_point = Xsig_pred_.col(i);
+    Zsig.col(i) <<
+      sigma_point(0),
+      sigma_point(1);
+  }
+
+  MatrixXd S = MatrixXd(lidar_z_dim, lidar_z_dim);
+  S.fill(0);
+  z_pred = Zsig * weights_;
+  for (int i=0; i < Zsig.cols(); i++) {
+    MatrixXd Zsigdiff = Zsig.col(i) - z_pred;
+    S += weights_(i) * (Zsigdiff * Zsigdiff.transpose());
+  }
+
+  MatrixXd R = MatrixXd(lidar_z_dim, lidar_z_dim);
+  R <<
+    std_laspx_ * std_laspx_, 0                      ,
+    0                      , std_laspy_ * std_laspy_;
+  //calculate measurement covariance matrix S
+  S += R;
+
+  MatrixXd Tc = MatrixXd(n_x_, lidar_z_dim);
+  Tc.fill(0);
+  for(int i = 0; i < Xsig_pred_.cols(); i++) {
+    Tc += weights_(i) * ((Xsig_pred_.col(i) - x_) * (Zsig.col(i) - z_pred).transpose());
+  }
+  MatrixXd K = Tc * S.inverse();
+
+  x_ = x_ + K * (measurement_package.raw_measurements_ - z_pred);
+  P_ = P_ - K * S * K.transpose();
+
+
+  while (x_(3)> M_PI) x_(3)-=2.*M_PI;
+  while (x_(3)< -M_PI) x_(3)+=2.*M_PI;
+  while (x_(4)> M_PI) x_(4)-=2.*M_PI;
+  while (x_(4)< -M_PI) x_(4)+=2.*M_PI;
 }
 
 void UKF::UpdateRadar(MeasurementPackage measurement_package) {
-  /**
-  TODO:
 
-  Complete this function! Use radar data to update the belief about the object's
-  position. Modify the state vector, x_, and covariance, P_.
+  MatrixXd Zsig = MatrixXd(radar_z_dim_, n_sigma_);
+  VectorXd z_pred = VectorXd(radar_z_dim_);
 
-  You'll also need to calculate the radar NIS.
-  */
+  MatrixXd sigma_point;
+  for (int i=0; i < Xsig_pred_.cols(); i++) {
+    sigma_point = Xsig_pred_.col(i);
+    double rho = sqrt(sigma_point(0) * sigma_point(0) + sigma_point(1) * sigma_point(1));
+    if (rho == 0) {
+      rho = DBL_MIN;
+    }
+    if (sigma_point(0) == 0) {
+      sigma_point(0) = DBL_MIN;
+    }
+    Zsig.col(i) <<
+                rho,
+            atan2(sigma_point(1), sigma_point(0)),
+            (
+                    sigma_point(0) * cos(sigma_point(3)) * sigma_point(2) +
+                    sigma_point(1) * sin(sigma_point(3)) * sigma_point(2)
+            ) / (rho)
+            ;
+  }
+
+  MatrixXd S = MatrixXd(radar_z_dim_, radar_z_dim_);
+  S.fill(0);
+  z_pred = Zsig * weights_;
+  for (int i=0; i < Zsig.cols(); i++) {
+    MatrixXd Zsigdiff = Zsig.col(i) - z_pred;
+    S += weights_(i) * (Zsigdiff * Zsigdiff.transpose());
+  }
+
+  MatrixXd R = MatrixXd(radar_z_dim_, radar_z_dim_);
+  R <<
+    std_radr_ * std_radr_, 0                        , 0                      ,
+    0                    , std_radphi_ * std_radphi_, 0                      ,
+    0                    , 0                        , std_radrd_ * std_radrd_;
+  //calculate measurement covariance matrix S
+  S += R;
+
+  MatrixXd Tc = MatrixXd(n_x_, radar_z_dim_);
+  Tc.fill(0);
+  for(int i = 0; i < Xsig_pred_.cols(); i++) {
+    Tc += weights_(i) * ((Xsig_pred_.col(i) - x_) * (Zsig.col(i) - z_pred).transpose());
+  }
+  MatrixXd K = Tc * S.inverse();
+
+  x_ = x_ + K * (measurement_package.raw_measurements_ - z_pred);
+  P_ = P_ - K * S * K.transpose();
+
+
+  while (x_(3)> M_PI) x_(3)-=2.*M_PI;
+  while (x_(3)< -M_PI) x_(3)+=2.*M_PI;
+  while (x_(4)> M_PI) x_(4)-=2.*M_PI;
+  while (x_(4)< -M_PI) x_(4)+=2.*M_PI;
 }

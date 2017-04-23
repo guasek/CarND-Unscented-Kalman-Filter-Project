@@ -271,4 +271,13 @@ void UKF::UpdateMeanAndCovariance(
 
   x_(3) = Tools::NormalizeAngle(x_(3));
   x_(4) = Tools::NormalizeAngle(x_(4));
+
+  double epsilon = (measurement_package.raw_measurements_ - z_pred).transpose() *
+          S.inverse() *
+          (measurement_package.raw_measurements_ - z_pred);
+  if (measurement_package.sensor_type_ == MeasurementPackage::RADAR) {
+    NIS_radar_ = epsilon;
+  } else {
+    NIS_laser_ = epsilon;
+  }
 }

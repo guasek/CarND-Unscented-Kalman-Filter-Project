@@ -191,8 +191,6 @@ MatrixXd UKF::GenerateSigmaPoints() {
 void UKF::UpdateLidar(MeasurementPackage measurement_package) {
 
   MatrixXd Zsig = MatrixXd(lidar_z_dim, n_sigma_);
-  VectorXd z_pred = VectorXd(lidar_z_dim);
-
   MatrixXd sigma_point;
   for (int i=0; i < Xsig_pred_.cols(); i++) {
     sigma_point = Xsig_pred_.col(i);
@@ -201,32 +199,12 @@ void UKF::UpdateLidar(MeasurementPackage measurement_package) {
       sigma_point(1);
   }
 
-  MatrixXd S = MatrixXd(lidar_z_dim, lidar_z_dim);
-  S.fill(0);
-  z_pred = Zsig * weights_;
-  for (int i=0; i < Zsig.cols(); i++) {
-    MatrixXd Zsigdiff = Zsig.col(i) - z_pred;
-    S += weights_(i) * (Zsigdiff * Zsigdiff.transpose());
-  }
-
   MatrixXd R = MatrixXd(lidar_z_dim, lidar_z_dim);
   R <<
     std_laspx_ * std_laspx_, 0                      ,
     0                      , std_laspy_ * std_laspy_;
-  S += R;
 
-  MatrixXd Tc = MatrixXd(n_x_, lidar_z_dim);
-  Tc.fill(0);
-  for(int i = 0; i < Xsig_pred_.cols(); i++) {
-    Tc += weights_(i) * ((Xsig_pred_.col(i) - x_) * (Zsig.col(i) - z_pred).transpose());
-  }
-  MatrixXd K = Tc * S.inverse();
-
-  x_ = x_ + K * (measurement_package.raw_measurements_ - z_pred);
-  P_ = P_ - K * S * K.transpose();
-
-  x_(3) = Tools::NormalizeAngle(x_(3));
-  x_(4) = Tools::NormalizeAngle(x_(4));
+  this->UpdateMeanAndCovariance(R, Zsig, lidar_z_dim, measurement_package);
 }
 
 void UKF::UpdateRadar(MeasurementPackage measurement_package) {
@@ -253,23 +231,35 @@ void UKF::UpdateRadar(MeasurementPackage measurement_package) {
             ) / (rho)
             ;
   }
+  MatrixXd R = MatrixXd(radar_z_dim_, radar_z_dim_);
+  R <<
+    std_radr_ * std_radr_, 0                        , 0                      ,
+          0                    , std_radphi_ * std_radphi_, 0                      ,
+          0                    , 0                        , std_radrd_ * std_radrd_;
 
-  MatrixXd S = MatrixXd(radar_z_dim_, radar_z_dim_);
-  S.fill(0);
+  this->UpdateMeanAndCovariance(R, Zsig, radar_z_dim_, measurement_package);
+}
+
+void UKF::UpdateMeanAndCovariance(
+        const MatrixXd &R,
+        const MatrixXd &Zsig,
+        int measurement_z_dim,
+        MeasurementPackage &measurement_package
+) {
+
+  VectorXd z_pred = VectorXd(measurement_z_dim);
   z_pred = Zsig * weights_;
+
+  MatrixXd S = MatrixXd(measurement_z_dim, measurement_z_dim);
+  S.fill(0);
   for (int i=0; i < Zsig.cols(); i++) {
     MatrixXd Zsigdiff = Zsig.col(i) - z_pred;
     S += weights_(i) * (Zsigdiff * Zsigdiff.transpose());
   }
 
-  MatrixXd R = MatrixXd(radar_z_dim_, radar_z_dim_);
-  R <<
-    std_radr_ * std_radr_, 0                        , 0                      ,
-    0                    , std_radphi_ * std_radphi_, 0                      ,
-    0                    , 0                        , std_radrd_ * std_radrd_;
   S += R;
 
-  MatrixXd Tc = MatrixXd(n_x_, radar_z_dim_);
+  MatrixXd Tc = MatrixXd(n_x_, measurement_z_dim);
   Tc.fill(0);
   for(int i = 0; i < Xsig_pred_.cols(); i++) {
     Tc += weights_(i) * ((Xsig_pred_.col(i) - x_) * (Zsig.col(i) - z_pred).transpose());

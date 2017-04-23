@@ -21,7 +21,15 @@ public:
   */
   static Eigen::VectorXd CalculateRMSE(const std::vector<Eigen::VectorXd> &estimations, const std::vector<Eigen::VectorXd> &ground_truth);
 
+  /**
+   * Converts polar coordinates to cartesian.
+   */
   static std::tuple<double, double> PolarToCartesian(double rho, double phi);
+
+  /**
+   * Normalizes given angle so it's between -pi,pi.
+   */
+  static double NormalizeAngle(double angle);
 };
 
 #endif /* TOOLS_H_ */

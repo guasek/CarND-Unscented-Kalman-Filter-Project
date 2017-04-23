@@ -35,3 +35,13 @@ std::tuple<double, double> Tools::PolarToCartesian(double rho, double phi) {
 
   return std::make_tuple(px, py);
 };
+
+double Tools::NormalizeAngle(double angle) {
+  while (angle > M_PI) {
+    angle -= 2.*M_PI;
+  }
+  while (angle < -M_PI) {
+    angle += 2.*M_PI;
+  }
+  return angle;
+}

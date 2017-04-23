@@ -9,15 +9,11 @@ using Eigen::MatrixXd;
 using Eigen::VectorXd;
 using std::vector;
 
-// TODO: Jeslk sie będzie sypać to porobić wszedzie fill(0)
 /**
  * Initializes Unscented Kalman filter
  */
 UKF::UKF() {
-  // if this is false, laser measurements will be ignored (except during init)
   use_laser_ = true;
-
-  // if this is false, radar measurements will be ignored (except during init)
   use_radar_ = true;
 
   n_x_ = 5;
@@ -28,41 +24,24 @@ UKF::UKF() {
   radar_z_dim_ = 3;
   lidar_z_dim = 2;
 
-  over_expected = 0;
-  under_expected = 0;
-
   weights_ = VectorXd(n_sigma_);
   weights_(0) = lambda_ / (lambda_ + n_aug_);
   weights_.tail(2 * n_aug_) = MatrixXd::Constant(2 * n_aug_, 1, 1 / (2 * (lambda_ + n_aug_)));
 
-  // initial state vector
   x_ = VectorXd(n_x_);
-
-  // initial covariance matrix
   P_ = MatrixXd(n_x_, n_x_);
 
   Xsig_pred_ = MatrixXd(n_x_, n_sigma_);
   Xsig_pred_.fill(0);
 
-  // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_a_ = 0.9; // 30;
+  std_a_ = 0.9;
+  std_yawdd_ = 0.6;
 
-  // Process noise standard deviation yaw acceleration in rad/s^2
-  std_yawdd_ = 0.6; // 30;
-
-  // Laser measurement noise standard deviation position1 in m
   std_laspx_ = 0.15;
-
-  // Laser measurement noise standard deviation position2 in m
   std_laspy_ = 0.15;
 
-  // Radar measurement noise standard deviation radius in m
   std_radr_ = 0.3;
-
-  // Radar measurement noise standard deviation angle in rad
   std_radphi_ = 0.03;
-
-  // Radar measurement noise standard deviation radius change in m/s
   std_radrd_ = 0.3;
 }
 
@@ -83,9 +62,9 @@ void UKF::Initialize(const MeasurementPackage &measurement_package) {
   x_ = initial_x;
   P_ <<   1, 0, 0, 0, 0,
           0, 1, 0, 0, 0,
-          0, 0, 10, 0, 0,
-          0, 0, 0, 10, 0,
-          0, 0, 0, 0, 10;
+          0, 0, 40, 0, 0,
+          0, 0, 0, 50, 0,
+          0, 0, 0, 0, 50;
 
   this->time_us_ = measurement_package.timestamp_;
   this->is_initialized_ = true;
@@ -100,7 +79,7 @@ void UKF::ProcessMeasurement(MeasurementPackage measurement_package) {
   if ((!use_laser_ && measurement_package.sensor_type_ == MeasurementPackage::LASER) ||
       (!use_radar_ && measurement_package.sensor_type_ == MeasurementPackage::RADAR)
       ) {
-    cout << "Skipping " << measurement_package.sensor_type_ << endl;
+    cout << "Skipping measurement" << measurement_package.sensor_type_ << endl;
     return;
   }
 
@@ -109,17 +88,11 @@ void UKF::ProcessMeasurement(MeasurementPackage measurement_package) {
 
   this->Predict(delta_t);
 
-//  cout << "After Predict:" << endl;
-//  cout << "X mean: " << endl << x_ << endl;
-//  cout << "P mean: " << endl << P_ << endl << endl;
   if (measurement_package.sensor_type_ == MeasurementPackage::RADAR) {
     this->UpdateRadar(measurement_package);
   } else {
     this->UpdateLidar(measurement_package);
   }
-//  cout << "After Update:" << endl;
-//  cout << "X mean: " << endl << x_ << endl;
-//  cout << "P mean: " << endl << P_ << endl << endl;
 }
 
 
@@ -130,30 +103,22 @@ void UKF::Predict(double delta_t) {
 }
 
 void UKF::PredictNewState() {
-  // Predict the state first.
   VectorXd new_mean(n_x_);
   new_mean.fill(0);
   for (int i = 0; i < 2 * n_aug_ + 1; i++) {
     new_mean += weights_(i) * Xsig_pred_.col(i);
   }
-
-  while (new_mean(3)> M_PI) new_mean(3)-=2.*M_PI;
-  while (new_mean(3)< -M_PI) new_mean(3)+=2.*M_PI;
-  while (new_mean(4)> M_PI) new_mean(4)-=2.*M_PI;
-  while (new_mean(4)< -M_PI) new_mean(4)+=2.*M_PI;
+  new_mean(3) = Tools::NormalizeAngle(new_mean(3));
+  new_mean(4) = Tools::NormalizeAngle(new_mean(4));
   x_ << new_mean;
 
-  // Then we can predict covariance basing on predicted state.
   MatrixXd X_sub_mean = VectorXd(Xsig_pred_.rows());
   MatrixXd new_covariance(n_x_, n_x_);
   new_covariance.fill(0);
   for (int i=0; i < Xsig_pred_.cols(); i++) {
     X_sub_mean = Xsig_pred_.col(i) - x_;
-
-    while (X_sub_mean(3)> M_PI) X_sub_mean(3)-=2.*M_PI;
-    while (X_sub_mean(3)< -M_PI) X_sub_mean(3)+=2.*M_PI;
-    while (X_sub_mean(4)> M_PI) X_sub_mean(4)-=2.*M_PI;
-    while (X_sub_mean(4)< -M_PI) X_sub_mean(4)+=2.*M_PI;
+    X_sub_mean(3) = Tools::NormalizeAngle(X_sub_mean(3));
+    X_sub_mean(4) = Tools::NormalizeAngle(X_sub_mean(4));
 
     new_covariance += weights_(i) * (X_sub_mean * X_sub_mean.transpose());
   }
@@ -201,11 +166,9 @@ MatrixXd UKF::GenerateSigmaPoints() {
   MatrixXd P_aug = MatrixXd(n_aug_, n_aug_);
   MatrixXd Xsig_aug = MatrixXd(n_aug_, 2 * n_aug_ + 1);
 
-  // Augmented mean state
   x_aug.head(x_.size()) = x_;
   x_aug.tail(2) << 0, 0;
 
-  // Augmented cov matrix
   P_aug.fill(0);
   P_aug.topLeftCorner(P_.rows(), P_.cols()) = P_;
   P_aug.bottomRightCorner(2, 2) << std_a_ * std_a_, 0                    ,
@@ -250,7 +213,6 @@ void UKF::UpdateLidar(MeasurementPackage measurement_package) {
   R <<
     std_laspx_ * std_laspx_, 0                      ,
     0                      , std_laspy_ * std_laspy_;
-  //calculate measurement covariance matrix S
   S += R;
 
   MatrixXd Tc = MatrixXd(n_x_, lidar_z_dim);
@@ -263,18 +225,8 @@ void UKF::UpdateLidar(MeasurementPackage measurement_package) {
   x_ = x_ + K * (measurement_package.raw_measurements_ - z_pred);
   P_ = P_ - K * S * K.transpose();
 
-
-  while (x_(3)> M_PI) x_(3)-=2.*M_PI;
-  while (x_(3)< -M_PI) x_(3)+=2.*M_PI;
-  while (x_(4)> M_PI) x_(4)-=2.*M_PI;
-  while (x_(4)< -M_PI) x_(4)+=2.*M_PI;
-  double epsilon = (measurement_package.raw_measurements_ - z_pred).transpose() * S.inverse() * (measurement_package.raw_measurements_ - z_pred);
-  if (epsilon > 5.99) {
-    over_expected ++;
-  } else
-  {
-    under_expected ++;
-  }
+  x_(3) = Tools::NormalizeAngle(x_(3));
+  x_(4) = Tools::NormalizeAngle(x_(4));
 }
 
 void UKF::UpdateRadar(MeasurementPackage measurement_package) {
@@ -315,7 +267,6 @@ void UKF::UpdateRadar(MeasurementPackage measurement_package) {
     std_radr_ * std_radr_, 0                        , 0                      ,
     0                    , std_radphi_ * std_radphi_, 0                      ,
     0                    , 0                        , std_radrd_ * std_radrd_;
-  //calculate measurement covariance matrix S
   S += R;
 
   MatrixXd Tc = MatrixXd(n_x_, radar_z_dim_);
@@ -328,17 +279,6 @@ void UKF::UpdateRadar(MeasurementPackage measurement_package) {
   x_ = x_ + K * (measurement_package.raw_measurements_ - z_pred);
   P_ = P_ - K * S * K.transpose();
 
-
-  while (x_(3)> M_PI) x_(3)-=2.*M_PI;
-  while (x_(3)< -M_PI) x_(3)+=2.*M_PI;
-  while (x_(4)> M_PI) x_(4)-=2.*M_PI;
-  while (x_(4)< -M_PI) x_(4)+=2.*M_PI;
-
-  double epsilon = (measurement_package.raw_measurements_ - z_pred).transpose() * S.inverse() * (measurement_package.raw_measurements_ - z_pred);
-  if (epsilon > 7.82) {
-    over_expected ++;
-  } else
-  {
-    under_expected ++;
-  }
+  x_(3) = Tools::NormalizeAngle(x_(3));
+  x_(4) = Tools::NormalizeAngle(x_(4));
 }

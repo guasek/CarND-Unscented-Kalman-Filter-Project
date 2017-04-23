@@ -216,7 +216,6 @@ int main(int argc, char* argv[]) {
 
   // compute the accuracy (RMSE)
   cout << "Accuracy - RMSE:" << endl << Tools::CalculateRMSE(estimations, ground_truth) << endl;
-  cout << "NIS: " << ((double) ukf.over_expected) / ((double)(ukf.over_expected + ukf.under_expected));
   // close files
   if (out_file_.is_open()) {
     out_file_.close();

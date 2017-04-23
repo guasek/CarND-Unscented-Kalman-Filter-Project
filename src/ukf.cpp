@@ -15,6 +15,7 @@ using std::vector;
 UKF::UKF() {
   use_laser_ = true;
   use_radar_ = true;
+  is_initialized_ = false;
 
   n_x_ = 5;
   n_aug_ = 7;

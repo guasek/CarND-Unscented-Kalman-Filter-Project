@@ -28,6 +28,9 @@ UKF::UKF() {
   radar_z_dim_ = 3;
   lidar_z_dim = 2;
 
+  over_expected = 0;
+  under_expected = 0;
+
   weights_ = VectorXd(n_sigma_);
   weights_(0) = lambda_ / (lambda_ + n_aug_);
   weights_.tail(2 * n_aug_) = MatrixXd::Constant(2 * n_aug_, 1, 1 / (2 * (lambda_ + n_aug_)));
@@ -42,10 +45,10 @@ UKF::UKF() {
   Xsig_pred_.fill(0);
 
   // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_a_ = 0.2; // 30;
+  std_a_ = 0.98; // 30;
 
   // Process noise standard deviation yaw acceleration in rad/s^2
-  std_yawdd_ = 0.2; // 30;
+  std_yawdd_ = 0.45; // 30;
 
   // Laser measurement noise standard deviation position1 in m
   std_laspx_ = 0.15;
@@ -65,6 +68,28 @@ UKF::UKF() {
 
 UKF::~UKF() {}
 
+void UKF::Initialize(const MeasurementPackage &measurement_package) {
+  VectorXd initial_x(5);
+  if (measurement_package.sensor_type_ == MeasurementPackage::RADAR) {
+    double px, py;
+    tie(px, py) = Tools::PolarToCartesian(
+            measurement_package.raw_measurements_[0], measurement_package.raw_measurements_[1]
+    );
+    initial_x << px, py, 0, 0, 0;
+  }
+  else if (measurement_package.sensor_type_ == MeasurementPackage::LASER) {
+    initial_x << measurement_package.raw_measurements_[0], measurement_package.raw_measurements_[1], 0, 0, 0;
+  }
+  x_ = initial_x;
+  P_ <<   1, 0, 0, 0, 0,
+          0, 1, 0, 0, 0,
+          0, 0, 10, 0, 0,
+          0, 0, 0, 10, 0,
+          0, 0, 0, 0, 10;
+
+  this->time_us_ = measurement_package.timestamp_;
+  this->is_initialized_ = true;
+}
 
 void UKF::ProcessMeasurement(MeasurementPackage measurement_package) {
   if (!is_initialized_) {
@@ -84,17 +109,17 @@ void UKF::ProcessMeasurement(MeasurementPackage measurement_package) {
 
   this->Predict(delta_t);
 
-  cout << "After Predict:" << endl;
-  cout << "X mean: " << endl << x_ << endl;
-  cout << "P mean: " << endl << P_ << endl << endl;
+//  cout << "After Predict:" << endl;
+//  cout << "X mean: " << endl << x_ << endl;
+//  cout << "P mean: " << endl << P_ << endl << endl;
   if (measurement_package.sensor_type_ == MeasurementPackage::RADAR) {
     this->UpdateRadar(measurement_package);
   } else {
     this->UpdateLidar(measurement_package);
   }
-  cout << "After Update:" << endl;
-  cout << "X mean: " << endl << x_ << endl;
-  cout << "P mean: " << endl << P_ << endl << endl;
+//  cout << "After Update:" << endl;
+//  cout << "X mean: " << endl << x_ << endl;
+//  cout << "P mean: " << endl << P_ << endl << endl;
 }
 
 
@@ -200,30 +225,6 @@ MatrixXd UKF::GenerateSigmaPoints() {
 }
 
 
-void UKF::Initialize(const MeasurementPackage &measurement_package) {
-  VectorXd initial_x(5);
-  if (measurement_package.sensor_type_ == MeasurementPackage::RADAR) {
-      double px, py;
-      tie(px, py) = Tools::PolarToCartesian(
-              measurement_package.raw_measurements_[0], measurement_package.raw_measurements_[1]
-      );
-      initial_x << px, py, 0, 0, 0;
-    }
-    else if (measurement_package.sensor_type_ == MeasurementPackage::LASER) {
-      initial_x << measurement_package.raw_measurements_[0], measurement_package.raw_measurements_[1], 0, 0, 0;
-    }
-  x_ = initial_x;
-  P_ << 1, 0, 0, 0, 0,
-        0, 1, 0, 0, 0,
-        0, 0, 1, 0, 0,
-        0, 0, 0, 10, 0,
-        0, 0, 0, 0, 10;
-
-  this->time_us_ = measurement_package.timestamp_;
-  this->is_initialized_ = true;
-}
-
-
 void UKF::UpdateLidar(MeasurementPackage measurement_package) {
 
   MatrixXd Zsig = MatrixXd(lidar_z_dim, n_sigma_);
@@ -267,6 +268,13 @@ void UKF::UpdateLidar(MeasurementPackage measurement_package) {
   while (x_(3)< -M_PI) x_(3)+=2.*M_PI;
   while (x_(4)> M_PI) x_(4)-=2.*M_PI;
   while (x_(4)< -M_PI) x_(4)+=2.*M_PI;
+  double epsilon = (measurement_package.raw_measurements_ - z_pred).transpose() * S.inverse() * (measurement_package.raw_measurements_ - z_pred);
+  if (epsilon > 5.99) {
+    over_expected ++;
+  } else
+  {
+    under_expected ++;
+  }
 }
 
 void UKF::UpdateRadar(MeasurementPackage measurement_package) {
@@ -325,4 +333,12 @@ void UKF::UpdateRadar(MeasurementPackage measurement_package) {
   while (x_(3)< -M_PI) x_(3)+=2.*M_PI;
   while (x_(4)> M_PI) x_(4)-=2.*M_PI;
   while (x_(4)< -M_PI) x_(4)+=2.*M_PI;
+
+  double epsilon = (measurement_package.raw_measurements_ - z_pred).transpose() * S.inverse() * (measurement_package.raw_measurements_ - z_pred);
+  if (epsilon > 7.82) {
+    over_expected ++;
+  } else
+  {
+    under_expected ++;
+  }
 }

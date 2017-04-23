@@ -71,6 +71,8 @@ public:
 
   int lidar_z_dim;
 
+  int over_expected;
+  int under_expected;
   ///* Sigma point spreading parameter
   double lambda_;
 
